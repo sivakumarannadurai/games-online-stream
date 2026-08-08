@@ -29,6 +29,7 @@
         
         .neon-text { text-shadow: 0 0 10px #ff0077, 0 0 20px #ff0077; color: #ff0077; font-size: 3rem; margin: 0; }
         .restart-hint { margin-top: 20px; color: #00ffcc; opacity: 0.8; animation: blink 1.5s infinite; }
+        .countdown-text { font-size: 2.5rem; font-weight: bold; color: #00ffcc; text-shadow: 0 0 15px #00ffcc; margin-top: 15px; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
@@ -37,14 +38,15 @@
     <div id="splash">
         <h1 style="text-shadow: 0 0 20px #00ffcc;">NEON SNAKE AI</h1>
         <div class="loader"></div>
-        <p>TAP TO START</p>
+        <div class="countdown-text" id="splashCountdown">STARTING IN 3...</div>
     </div>
 
-    <div id="gameover" onclick="resetGame()">
+    <div id="gameover" onclick="skipGameOverCountdown()">
         <p style="color: #00ffcc; margin-bottom: 0;">FINAL SCORE</p>
         <h2 id="finalScoreDisplay" style="font-size: 4rem; margin: 10px 0;">0</h2>
         <h1 class="neon-text">GAME OVER</h1>
-        <p class="restart-hint">TAP ANYWHERE TO RESTART</p>
+        <div class="countdown-text" id="restartCountdown" style="color: #ff0077; text-shadow: 0 0 15px #ff0077;">RESTARTING IN 3...</div>
+        <p class="restart-hint">TAP ANYWHERE TO RESTART IMMEDIATELY</p>
     </div>
 
     <div class="score" id="score">SCORE: 0</div>
@@ -60,14 +62,17 @@
         const ctx = canvas.getContext("2d");
         const scoreElement = document.getElementById("score");
         const splash = document.getElementById("splash");
+        const splashCountdown = document.getElementById("splashCountdown");
         const gameoverScreen = document.getElementById("gameover");
         const finalScoreDisplay = document.getElementById("finalScoreDisplay");
+        const restartCountdown = document.getElementById("restartCountdown");
 
         let score = 0, gridSize = 20, cols = 20, rows = 20;
         let snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
         let dx = 1, dy = 0, nextDx = 1, nextDy = 0;
         let food = {x: 15, y: 15, type: 'apple'};
         let particles = [], isAiEnabled = true, gameActive = false;
+        let restartTimer = null;
 
         const FRUITS = {
             apple: { color: "#ff0077", points: 10, freq: 440 },
@@ -77,25 +82,43 @@
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playSound(freq, type="square", volume=0.1, duration=0.1) {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(volume, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + duration);
+            try {
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        // Auto Start Countdown Routine
+        function startAutoStartCountdown() {
+            let count = 3;
+            splashCountdown.innerText = `STARTING IN ${count}...`;
+            const interval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    splashCountdown.innerText = `STARTING IN ${count}...`;
+                    playSound(600, "sine", 0.05, 0.05);
+                } else {
+                    clearInterval(interval);
+                    splash.style.opacity = '0';
+                    setTimeout(() => splash.style.display = 'none', 300);
+                    gameActive = true;
+                    if(audioCtx.state === 'suspended') audioCtx.resume();
+                    playSound(880, "sine", 0.1, 0.15);
+                    main();
+                }
+            }, 1000);
         }
 
         window.addEventListener('click', (e) => {
             if (e.target.tagName === 'BUTTON') return;
-            if (!gameActive && gameoverScreen.style.display !== 'flex') {
-                splash.style.opacity = '0';
-                setTimeout(() => splash.style.display = 'none', 300);
-                gameActive = true;
-                if(audioCtx.state === 'suspended') audioCtx.resume();
-                main();
-            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
         });
 
         function main() {
@@ -119,6 +142,32 @@
             playSound(150, "sawtooth", 0.2, 0.5); // Death sound
             finalScoreDisplay.innerText = score;
             gameoverScreen.style.display = 'flex';
+            startAutoRestartCountdown();
+        }
+
+        function startAutoRestartCountdown() {
+            if (restartTimer) clearInterval(restartTimer);
+            let count = 3;
+            restartCountdown.innerText = `RESTARTING IN ${count}...`;
+            restartTimer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    restartCountdown.innerText = `RESTARTING IN ${count}...`;
+                    playSound(400, "sine", 0.05, 0.05);
+                } else {
+                    clearInterval(restartTimer);
+                    restartTimer = null;
+                    resetGame();
+                }
+            }, 1000);
+        }
+
+        function skipGameOverCountdown() {
+            if (restartTimer) {
+                clearInterval(restartTimer);
+                restartTimer = null;
+            }
+            resetGame();
         }
 
         function resetGame() {
@@ -241,7 +290,7 @@
         function toggleAI() { isAiEnabled = !isAiEnabled; document.getElementById("aiBtn").innerText = `AI: ${isAiEnabled?'ON':'OFF'}`; }
 
         window.addEventListener("keydown", e => {
-            if (gameoverScreen.style.display === 'flex') { resetGame(); return; }
+            if (gameoverScreen.style.display === 'flex') { skipGameOverCountdown(); return; }
             if (isAiEnabled) return;
             if (e.key === "ArrowUp" && dy === 0) { nextDx = 0; nextDy = -1; }
             if (e.key === "ArrowDown" && dy === 0) { nextDx = 0; nextDy = 1; }
@@ -250,10 +299,12 @@
         });
 
         createFood();
+        startAutoStartCountdown();
+
         // Register Service Worker for PWA
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-}
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
     </script>
 </body>
 </html>
