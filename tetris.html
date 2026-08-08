@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Tetris - Self Playing</title>
+    <style>
+        body { background: #202028; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        canvas { border: solid 2px #fff; background-color: #000; }
+        .info { margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>AI-Driven Tetris</h1>
+    <canvas id="tetris" width="240" height="400"></canvas>
+    <div class="info">
+        <div id="score">Score: 0</div>
+        <p>AI is evaluating <b>Height</b>, <b>Holes</b>, and <b>Bumpiness</b>.</p>
+    </div>
+
+<script>
+const canvas = document.getElementById('tetris');
+const context = canvas.getContext('2d');
+context.scale(20, 20);
+
+// Piece definitions
+function createPiece(type) {
+    if (type === 'I') return [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]];
+    if (type === 'L') return [[0, 2, 0], [0, 2, 0], [0, 2, 2]];
+    if (type === 'J') return [[0, 3, 0], [0, 3, 0], [3, 3, 0]];
+    if (type === 'O') return [[4, 4], [4, 4]];
+    if (type === 'Z') return [[5, 5, 0], [0, 5, 5], [0, 0, 0]];
+    if (type === 'S') return [[0, 6, 6], [6, 6, 0], [0, 0, 0]];
+    if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
+}
+
+const colors = [null, '#FF0D72', '#0DC2FF', '#0DFF72', '#F538FF', '#FF8E0D', '#FFE138', '#3877FF'];
+
+function createMatrix(w, h) {
+    const matrix = [];
+    while (h--) matrix.push(new Array(w).fill(0));
+    return matrix;
+}
+
+function draw() {
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    drawMatrix(arena, {x: 0, y: 0});
+    drawMatrix(player.matrix, player.pos);
+}
+
+function drawMatrix(matrix, offset) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                context.fillStyle = colors[value];
+                context.fillRect(x + offset.x, y + offset.y, 1, 1);
+            }
+        });
+    });
+}
+
+function merge(arena, player) {
+    player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+        });
+    });
+}
+
+function collide(arena, player) {
+    const [m, o] = [player.matrix, player.pos];
+    for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+            if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+        }
+    }
+    return false;
+}
+
+function arenaSweep() {
+    let rowCount = 1;
+    outer: for (let y = arena.length - 1; y > 0; --y) {
+        for (let x = 0; x < arena[y].length; ++x) {
+            if (arena[y][x] === 0) continue outer;
+        }
+        const row = arena.splice(y, 1)[0].fill(0);
+        arena.unshift(row);
+        ++y;
+        player.score += rowCount * 10;
+        rowCount *= 2;
+    }
+    document.getElementById('score').innerText = "Score: " + player.score;
+}
+
+// --- AI LOGIC CORE ---
+function getBestMove() {
+    let bestScore = -Infinity;
+    let bestMove = null;
+
+    for (let r = 0; r < 4; r++) { // Try 4 rotations
+        const rotatedMatrix = rotate(player.matrix, r);
+        for (let x = -2; x < arena[0].length; x++) { // Try all horizontal positions
+            let p = { pos: { x: x, y: 0 }, matrix: rotatedMatrix };
+            if (collide(arena, p)) continue;
+
+            // Drop the piece to the bottom
+            while (!collide(arena, p)) { p.pos.y++; }
+            p.pos.y--;
+
+            // Score this position
+            const score = calculateHeuristic(arena, p);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = { x: x, rotation: r };
+            }
+        }
+    }
+    return bestMove;
+}
+
+function calculateHeuristic(arena, p) {
+    // Temp merge
+    const tempArena = arena.map(row => [...row]);
+    p.matrix.forEach((row, y) => {
+        row.forEach((v, x) => {
+            if (v !== 0 && tempArena[y + p.pos.y]) tempArena[y + p.pos.y][x + p.pos.x] = v;
+        });
+    });
+
+    let holes = 0, aggregateHeight = 0, bumpiness = 0;
+    const heights = new Array(tempArena[0].length).fill(0);
+
+    for (let x = 0; x < tempArena[0].length; x++) {
+        let colHeight = 0;
+        for (let y = 0; y < tempArena.length; y++) {
+            if (tempArena[y][x] !== 0) {
+                if (colHeight === 0) colHeight = tempArena.length - y;
+            } else if (colHeight > 0) {
+                holes++; // Empty space below a block
+            }
+        }
+        heights[x] = colHeight;
+        aggregateHeight += colHeight;
+    }
+
+    for (let x = 0; x < heights.length - 1; x++) {
+        bumpiness += Math.abs(heights[x] - heights[x+1]);
+    }
+
+    // AI Weights: Lower height/holes/bumpiness is better
+    return (aggregateHeight * -0.51) + (holes * -0.35) + (bumpiness * -0.18);
+}
+
+function rotate(matrix, times) {
+    let m = matrix.map(row => [...row]);
+    while (times--) {
+        for (let y = 0; y < m.length; ++y) {
+            for (let x = 0; x < y; ++x) {
+                [m[x][y], m[y][x]] = [m[y][x], m[x][y]];
+            }
+        }
+        m.forEach(row => row.reverse());
+    }
+    return m;
+}
+
+const arena = createMatrix(12, 20);
+const player = { pos: {x: 0, y: 0}, matrix: null, score: 0 };
+
+function playerReset() {
+    const pieces = 'ILJOTSZ';
+    player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+    player.pos.y = 0;
+    player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+    
+    if (collide(arena, player)) {
+        arena.forEach(row => row.fill(0));
+        player.score = 0;
+    }
+
+    // AI chooses the next move immediately when a new piece spawns
+    const move = getBestMove();
+    if (move) {
+        player.matrix = rotate(player.matrix, move.rotation);
+        player.pos.x = move.x;
+    }
+}
+
+let dropCounter = 0;
+let dropInterval = 50; // Speed of AI play
+let lastTime = 0;
+
+function update(time = 0) {
+    const deltaTime = time - lastTime;
+    lastTime = time;
+    dropCounter += deltaTime;
+    if (dropCounter > dropInterval) {
+        player.pos.y++;
+        if (collide(arena, player)) {
+            player.pos.y--;
+            merge(arena, player);
+            playerReset();
+            arenaSweep();
+        }
+        dropCounter = 0;
+    }
+    draw();
+    requestAnimationFrame(update);
+}
+
+playerReset();
+update();
+</script>
+</body>
+</html>

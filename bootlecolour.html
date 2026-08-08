@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Water Sort - Pro Edition</title>
+    <style>
+        body { background: #0a0a0c; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { display: flex; gap: 25px; margin-bottom: 50px; }
+        .bottle { 
+            width: 50px; height: 160px; border: 3px solid rgba(255,255,255,0.3); 
+            border-top: none; border-radius: 0 0 25px 25px; 
+            display: flex; flex-direction: column-reverse; 
+            position: relative; background: rgba(255,255,255,0.05);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            transition: transform 0.3s;
+        }
+        .bottle.pouring { transform: rotate(-20deg) translateY(-20px); z-index: 10; }
+        .layer { 
+            width: 100%; height: 0%; /* Initialized by JS */
+            transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        button { 
+            padding: 15px 40px; font-size: 18px; cursor: pointer; 
+            background: linear-gradient(45deg, #00f0ff, #0072ff); 
+            border: none; border-radius: 50px; color: white; 
+            font-weight: bold; box-shadow: 0 0 15px #00f0ff;
+        }
+        button:hover { transform: scale(1.05); }
+        .status { margin-top: 20px; font-family: monospace; color: #00f0ff; height: 20px; }
+    </style>
+</head>
+<body>
+    <h1>AI Fluid Sort Visualizer</h1>
+    <div class="container" id="bottle-container"></div>
+    <button onclick="solve()">SOLVE WITH AI</button>
+    <div class="status" id="status">System Ready</div>
+
+<script>
+const COLORS = { 1: '#FF4136', 2: '#2ECC40', 3: '#0074D9', 4: '#FFDC00' };
+let state = [[1,2,3,4], [4,3,2,1], [2,4,1,3], [3,1,4,2], [], []];
+
+// Sound Synthesis using Web Audio API
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playPourSound() {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.5);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.5);
+}
+
+function render() {
+    const container = document.getElementById('bottle-container');
+    container.innerHTML = '';
+    state.forEach((bottle, i) => {
+        const bDiv = document.createElement('div');
+        bDiv.id = `bottle-${i}`;
+        bDiv.className = 'bottle';
+        // Create 4 potential slots
+        for(let j=0; j<4; j++) {
+            const layer = document.createElement('div');
+            layer.className = 'layer';
+            if (bottle[j]) {
+                layer.style.height = '25%';
+                layer.style.backgroundColor = COLORS[bottle[j]];
+            } else {
+                layer.style.height = '0%';
+            }
+            bDiv.appendChild(layer);
+        }
+        container.appendChild(bDiv);
+    });
+}
+
+async function solve() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    document.getElementById('status').innerText = "AI COMPILING PATH...";
+    
+    let queue = [{ s: JSON.parse(JSON.stringify(state)), path: [] }];
+    let visited = new Set([JSON.stringify(state)]);
+    let solution = null;
+
+    // BFS Solver
+    while(queue.length > 0) {
+        let { s, path } = queue.shift();
+        if (s.every(b => b.length === 0 || (b.length === 4 && b.every(c => c === b[0])))) {
+            solution = path; break;
+        }
+        for(let i=0; i<s.length; i++) {
+            for(let j=0; j<s.length; j++) {
+                if(i===j || s[i].length===0 || s[j].length===4) continue;
+                if(s[j].length === 0 || s[i][s[i].length-1] === s[j][s[j].length-1]) {
+                    let nextS = s.map(b => [...b]);
+                    nextS[j].push(nextS[i].pop());
+                    let key = JSON.stringify(nextS);
+                    if(!visited.has(key)) {
+                        visited.add(key);
+                        queue.push({ s: nextS, path: [...path, {from: i, to: j}] });
+                    }
+                }
+            }
+        }
+    }
+
+    if(solution) {
+        for(let move of solution) {
+            const fromB = document.getElementById(`bottle-${move.from}`);
+            const toB = document.getElementById(`bottle-${move.to}`);
+            
+            // Start Animation
+            fromB.classList.add('pouring');
+            playPourSound();
+            
+            await new Promise(r => setTimeout(r, 600));
+            
+            // Execute logic
+            state[move.to].push(state[move.from].pop());
+            render();
+            
+            fromB.classList.remove('pouring');
+            document.getElementById('status').innerText = `STEP: BOTTLE ${move.from+1} -> ${move.to+1}`;
+            await new Promise(r => setTimeout(r, 400));
+        }
+        document.getElementById('status').innerText = "PUZZLE COMPLETED SUCCESSFULLY";
+    }
+}
+
+render();
+</script>
+</body>
+</html>

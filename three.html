@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3-Body Orbit & Spin</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: monospace; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #00ff00; pointer-events: none; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        OBJECTIVE: 10 Rotations while Orbiting<br>
+        RED SPIN: <span id="r1">0</span> / 10<br>
+        BLUE SPIN: <span id="r2">0</span> / 10<br>
+        GREEN SPIN: <span id="r3">0</span> / 10
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // 1. Scene & Camera
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        camera.position.z = 12;
+
+        // 2. The Bodies (Cubes used so spin is visible)
+        function createPlanet(color) {
+            const group = new THREE.Group();
+            // Use a Box so you can see the "faces" rotating
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = new THREE.MeshStandardMaterial({ color: color, flatShading: true });
+            const mesh = new THREE.Mesh(geo, mat);
+            group.add(mesh);
+            scene.add(group);
+            return { group, mesh, vel: new THREE.Vector3(), pos: new THREE.Vector3() };
+        }
+
+        const b1 = createPlanet(0xff4444); // Red
+        const b2 = createPlanet(0x4444ff); // Blue
+        const b3 = createPlanet(0x44ff44); // Green
+
+        // Set initial "Three-Body" positions
+        b1.pos.set(4, 0, 0);   b1.vel.set(0, 2, 0);
+        b2.pos.set(-4, 0, 0);  b2.vel.set(0, -2, 0);
+        b3.pos.set(0, 2, 0);   b3.vel.set(-1, 0, 0);
+
+        // Lights
+        const light = new THREE.PointLight(0xffffff, 100);
+        light.position.set(0, 0, 10);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x222222));
+
+        // 3. Physics & Rotation Loop
+        const G = 15;
+        const dt = 0.01;
+        const bodies = [b1, b2, b3];
+        const targetRots = 10 * Math.PI * 2;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Gravitational Pull (The Orbit)
+            for (let i = 0; i < 3; i++) {
+                let acc = new THREE.Vector3(0, 0, 0);
+                for (let j = 0; j < 3; j++) {
+                    if (i !== j) {
+                        let diff = new THREE.Vector3().subVectors(bodies[j].pos, bodies[i].pos);
+                        let distSq = diff.lengthSq() + 0.5; // softening
+                        let force = G / distSq;
+                        acc.add(diff.normalize().multiplyScalar(force));
+                    }
+                }
+                bodies[i].vel.add(acc.multiplyScalar(dt));
+            }
+
+            // Update Movement & Personal Spin
+            bodies.forEach((b, i) => {
+                // Orbital movement
+                b.pos.add(b.vel.clone().multiplyScalar(dt));
+                b.group.position.copy(b.pos);
+
+                // Personal Rotation (The "10 Rotations")
+                if (b.mesh.rotation.y < targetRots) {
+                    b.mesh.rotation.y += 0.05;
+                    b.mesh.rotation.x += 0.02; // Tilting like Earth
+                }
+
+                // Update UI
+                const count = (b.mesh.rotation.y / (Math.PI * 2)).toFixed(1);
+                document.getElementById('r' + (i + 1)).innerText = Math.min(count, 10);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

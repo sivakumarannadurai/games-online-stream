@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#00ffcc">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/528/528105.png">
+    <title>Neon Snake Pro</title>
+    <style>
+        body { background: #0a0a0a; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #00ffcc; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; }
+        
+        /* Splash & Game Over Screens */
+        #splash, #gameover {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.9); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100;
+            transition: opacity 0.3s ease;
+        }
+        #gameover { display: none; border: 2px solid #ff0077; box-sizing: border-box; }
+        
+        .loader { width: 40px; height: 40px; border: 4px solid #111; border-top: 4px solid #00ffcc; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        canvas { border: 2px solid #00ffcc; box-shadow: 0 0 30px #00ffcc33; background: #111; max-width: 95vw; max-height: 70vh; }
+        .score { font-size: 2rem; margin-bottom: 10px; text-shadow: 0 0 10px #00ffcc; }
+        .ui { margin-top: 15px; }
+        button { background: #111; color: #00ffcc; border: 1px solid #00ffcc; padding: 12px 24px; cursor: pointer; font-weight: bold; }
+        
+        .neon-text { text-shadow: 0 0 10px #ff0077, 0 0 20px #ff0077; color: #ff0077; font-size: 3rem; margin: 0; }
+        .restart-hint { margin-top: 20px; color: #00ffcc; opacity: 0.8; animation: blink 1.5s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+
+    <div id="splash">
+        <h1 style="text-shadow: 0 0 20px #00ffcc;">NEON SNAKE AI</h1>
+        <div class="loader"></div>
+        <p>TAP TO START</p>
+    </div>
+
+    <div id="gameover" onclick="resetGame()">
+        <p style="color: #00ffcc; margin-bottom: 0;">FINAL SCORE</p>
+        <h2 id="finalScoreDisplay" style="font-size: 4rem; margin: 10px 0;">0</h2>
+        <h1 class="neon-text">GAME OVER</h1>
+        <p class="restart-hint">TAP ANYWHERE TO RESTART</p>
+    </div>
+
+    <div class="score" id="score">SCORE: 0</div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    
+    <div class="ui">
+        <button onclick="toggleAI()" id="aiBtn">AI: ON</button>
+        <button onclick="resetGame()">RESET</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreElement = document.getElementById("score");
+        const splash = document.getElementById("splash");
+        const gameoverScreen = document.getElementById("gameover");
+        const finalScoreDisplay = document.getElementById("finalScoreDisplay");
+
+        let score = 0, gridSize = 20, cols = 20, rows = 20;
+        let snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
+        let dx = 1, dy = 0, nextDx = 1, nextDy = 0;
+        let food = {x: 15, y: 15, type: 'apple'};
+        let particles = [], isAiEnabled = true, gameActive = false;
+
+        const FRUITS = {
+            apple: { color: "#ff0077", points: 10, freq: 440 },
+            golden: { color: "#ffcc00", points: 50, freq: 880 },
+            shrink: { color: "#00ccff", points: 5, freq: 220 }
+        };
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq, type="square", volume=0.1, duration=0.1) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+
+        window.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            if (!gameActive && gameoverScreen.style.display !== 'flex') {
+                splash.style.opacity = '0';
+                setTimeout(() => splash.style.display = 'none', 300);
+                gameActive = true;
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                main();
+            }
+        });
+
+        function main() {
+            if (!gameActive) return;
+            setTimeout(() => {
+                clearCanvas();
+                if (isAiEnabled) proAiLogic();
+                dx = nextDx; dy = nextDy;
+                advanceSnake();
+                drawParticles();
+                drawFood();
+                drawSnake();
+                if (didGameEnd()) {
+                    triggerGameOver();
+                } else main();
+            }, 50);
+        }
+
+        function triggerGameOver() {
+            gameActive = false;
+            playSound(150, "sawtooth", 0.2, 0.5); // Death sound
+            finalScoreDisplay.innerText = score;
+            gameoverScreen.style.display = 'flex';
+        }
+
+        function resetGame() {
+            gameoverScreen.style.display = 'none';
+            snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
+            score = 0;
+            scoreElement.innerHTML = "SCORE: 0";
+            dx = 1; dy = 0; nextDx = 1; nextDy = 0;
+            gameActive = true;
+            createFood();
+            main();
+        }
+
+        function advanceSnake() {
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+            snake.unshift(head);
+            if (head.x === food.x && head.y === food.y) {
+                const f = FRUITS[food.type];
+                score += f.points;
+                scoreElement.innerHTML = `SCORE: ${score}`;
+                playSound(f.freq);
+                createParticles(food.x, food.y, f.color);
+                if (food.type === 'shrink' && snake.length > 3) snake.splice(-2);
+                createFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function countAvailableSpace(startX, startY) {
+            let visited = new Set();
+            let stack = [{x: startX, y: startY}];
+            let count = 0;
+            while(stack.length > 0) {
+                let curr = stack.pop();
+                let key = `${curr.x},${curr.y}`;
+                if (curr.x < 0 || curr.x >= cols || curr.y < 0 || curr.y >= rows) continue;
+                if (visited.has(key) || snake.some(p => p.x === curr.x && p.y === curr.y)) continue;
+                visited.add(key);
+                count++;
+                if (count > snake.length + 5) return count; 
+                stack.push({x: curr.x+1, y: curr.y}, {x: curr.x-1, y: curr.y}, {x: curr.x, y: curr.y+1}, {x: curr.x, y: curr.y-1});
+            }
+            return count;
+        }
+
+        function proAiLogic() {
+            const head = snake[0];
+            const dirs = [{x:1, y:0}, {x:-1, y:0}, {x:0, y:1}, {x:0, y:-1}];
+            let moves = dirs.filter(d => {
+                const nx = head.x + d.x, ny = head.y + d.y;
+                if (d.x === -dx && d.y === -dy) return false;
+                const hitWall = nx < 0 || nx >= cols || ny < 0 || ny >= rows;
+                const hitSelf = snake.some(p => p.x === nx && p.y === ny);
+                return !hitWall && !hitSelf;
+            });
+
+            moves = moves.map(m => ({ ...m, space: countAvailableSpace(head.x + m.x, head.y + m.y) }));
+            let safeMoves = moves.filter(m => m.space >= snake.length);
+            let finalSelection = safeMoves.length > 0 ? safeMoves : moves;
+
+            if (finalSelection.length > 0) {
+                finalSelection.sort((a, b) => {
+                    const distA = Math.abs((head.x + a.x) - food.x) + Math.abs((head.y + a.y) - food.y);
+                    const distB = Math.abs((head.x + b.x) - food.x) + Math.abs((head.y + b.y) - food.y);
+                    return distA - distB;
+                });
+                nextDx = finalSelection[0].x; nextDy = finalSelection[0].y;
+            }
+        }
+
+        function createFood() {
+            const rand = Math.random();
+            let type = rand > 0.9 ? 'golden' : (rand > 0.8 ? 'shrink' : 'apple');
+            food = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows), type: type };
+            if (snake.some(p => p.x === food.x && p.y === food.y)) createFood();
+        }
+
+        function drawFood() {
+            let f = FRUITS[food.type];
+            ctx.fillStyle = f.color; ctx.shadowBlur = 15; ctx.shadowColor = f.color;
+            ctx.beginPath(); ctx.arc(food.x * gridSize + gridSize/2, food.y * gridSize + gridSize/2, gridSize/3, 0, Math.PI*2);
+            ctx.fill(); ctx.shadowBlur = 0;
+        }
+
+        function drawSnake() {
+            snake.forEach((part, i) => {
+                ctx.fillStyle = i === 0 ? "#00ffcc" : "#008877";
+                ctx.fillRect(part.x * gridSize + 1, part.y * gridSize + 1, gridSize - 2, gridSize - 2);
+            });
+        }
+
+        function clearCanvas() { ctx.fillStyle = "#111"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+
+        function didGameEnd() {
+            const h = snake[0];
+            return h.x < 0 || h.x >= cols || h.y < 0 || h.y >= rows || snake.slice(1).some(p => p.x === h.x && p.y === h.y);
+        }
+
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 15; i++) {
+                particles.push({
+                    x: x * gridSize + gridSize/2, y: y * gridSize + gridSize/2,
+                    vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                    life: 1.0, color: color
+                });
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+                if (p.life <= 0) particles.splice(i, 1);
+                ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+                ctx.fillRect(p.x, p.y, 3, 3);
+            });
+            ctx.globalAlpha = 1.0;
+        }
+
+        function toggleAI() { isAiEnabled = !isAiEnabled; document.getElementById("aiBtn").innerText = `AI: ${isAiEnabled?'ON':'OFF'}`; }
+
+        window.addEventListener("keydown", e => {
+            if (gameoverScreen.style.display === 'flex') { resetGame(); return; }
+            if (isAiEnabled) return;
+            if (e.key === "ArrowUp" && dy === 0) { nextDx = 0; nextDy = -1; }
+            if (e.key === "ArrowDown" && dy === 0) { nextDx = 0; nextDy = 1; }
+            if (e.key === "ArrowLeft" && dx === 0) { nextDx = -1; nextDy = 0; }
+            if (e.key === "ArrowRight" && dx === 0) { nextDx = 1; nextDy = 0; }
+        });
+
+        createFood();
+        // Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+}
+    </script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Word Ladder Solver</title>
+    <style>
+        body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .ladder-container { display: flex; flex-direction: column; gap: 10px; margin: 20px 0; min-height: 300px; justify-content: center; }
+        .word-step { 
+            background: #1e293b; border: 2px solid #38bdf8; padding: 10px 20px; 
+            border-radius: 8px; font-weight: bold; font-size: 24px; letter-spacing: 5px;
+            text-transform: uppercase; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            transform: scale(0); animation: popIn 0.5s forwards;
+        }
+        @keyframes popIn { to { transform: scale(1); } }
+        .controls { display: flex; gap: 10px; background: #1e293b; padding: 20px; border-radius: 12px; }
+        input { padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; width: 80px; text-align: center; font-size: 18px; }
+        button { padding: 10px 20px; border-radius: 6px; border: none; background: #38bdf8; color: #0f172a; font-weight: bold; cursor: pointer; }
+        button:hover { background: #7dd3fc; }
+        .status { margin-top: 15px; color: #94a3b8; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>AI Word Ladder</h1>
+    <div class="controls">
+        <input type="text" id="start" value="COLD" maxlength="4">
+        <span>TO</span>
+        <input type="text" id="end" value="WARM" maxlength="4">
+        <button onclick="solve()">SOLVE LADDER</button>
+    </div>
+    <div class="ladder-container" id="ladder"></div>
+    <div class="status" id="status">Enter two 4-letter words</div>
+
+<script>
+// Small dictionary for demo purposes
+const dictionary = ["COLD", "CORD", "CARD", "WARD", "WARM", "GOLD", "GOOD", "FOOD", "FOOT", "FORT", "WORT", "WORK", "PORK", "PART", "TART", "TALL", "BALL", "BELL", "FELL", "FILL", "FILE", "FIRE", "HIRE"];
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freq) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+}
+
+function getNeighbors(word) {
+    return dictionary.filter(w => {
+        if (w.length !== word.length) return false;
+        let diff = 0;
+        for (let i = 0; i < word.length; i++) {
+            if (w[i] !== word[i]) diff++;
+        }
+        return diff === 1;
+    });
+}
+
+async function solve() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const start = document.getElementById('start').value.toUpperCase();
+    const end = document.getElementById('end').value.toUpperCase();
+    const container = document.getElementById('ladder');
+    const status = document.getElementById('status');
+    
+    container.innerHTML = '';
+    status.innerText = "AI searching through dictionary...";
+
+    // BFS algorithm
+    let queue = [[start]];
+    let visited = new Set([start]);
+    let foundPath = null;
+
+    while (queue.length > 0) {
+        let path = queue.shift();
+        let currentWord = path[path.length - 1];
+
+        if (currentWord === end) {
+            foundPath = path;
+            break;
+        }
+
+        for (let neighbor of getNeighbors(currentWord)) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push([...path, neighbor]);
+            }
+        }
+    }
+
+    if (foundPath) {
+        status.innerText = `Path found in ${foundPath.length} steps!`;
+        for (let i = 0; i < foundPath.length; i++) {
+            const div = document.createElement('div');
+            div.className = 'word-step';
+            div.innerText = foundPath[i];
+            div.style.animationDelay = `${i * 0.2}s`;
+            container.appendChild(div);
+            setTimeout(() => playTone(200 + (i * 50)), i * 200);
+            await new Promise(r => setTimeout(r, 200));
+        }
+    } else {
+        status.innerText = "No path found in current dictionary.";
+    }
+}
+</script>
+</body>
+</html>
